@@ -1,0 +1,43 @@
+---
+title: "STAT 420 Group Project Proposal"
+author: "STAT 420, Summer 2021, Rachel Brynsvold(rab12), Zexi Yan (zexiyan2)"
+output:
+  html_document: 
+    theme: readable
+    toc: yes
+  pdf_document: default
+urlcolor: cyan
+---
+
+1. The names of the students who will be contributing to the group project.
+- Rachel Brynsvold(rab12), Zexi Yan(zexiyan2)
+2. A tentative title for the project.
+- Employee Burn-Out Rate In Postpandemic World 
+3. Description of the data file (what they contain including number of variables and number of records). You do not necessarily have to list all the variables, but at least mention those of greatest importance.
+</br></br> There are 9 variables in total, including 5 continuous variables (Date of Joining, Designation, Resources Allocation, Mental Fatigue Score and Burn Rate) and 4 factor variables (employee ID, Gender, Company Type, WFH Setup Available).
+   - Employee ID: The unique ID allocated for each employee (example: fffe390032003000)
+   - Date of Joining: The date-time when the employee has joined the organization (example: 2008-12-30)
+   - Gender: The gender of the employee (Male/Female)
+   - Company Type: The type of company where the employee is working (Service/Product)
+   - WFH Setup Available: Is the work from home facility available for the employee (Yes/No)
+   - Designation: The designation of the employee of work in the organization.
+     - In the range of [0.0, 5.0] bigger is higher designation.
+   - Resource Allocation: The amount of resource allocated to the employee to work, ie. number of working hours.
+     - In the range of [1.0, 10.0] (higher means more resource)
+   - Mental Fatigue Score: The level of mental fatigue the employee is facing.
+     - In the range of [0.0, 10.0] where 0.0 means no fatigue and 10.0 means complete fatigue.
+   - Burn Rate: The value we need to predict for each employee telling the rate of Burn out while working.
+     - In the range of [0.0, 1.0] where a higher value corresponds to more burn out.
+4. Background information on the data sets, including specific citation of their source (so that I can also access it).
+    - This dataset is obtained from a kaggle contest, it can be assessed from [here](https://www.kaggle.com/blurredmachine/are-your-employees-burning-out).
+    - The original competiton "HackerEarth Machine Learning Challenge: Are your employees burning out?" is no longer accessible.
+5. A brief statement of the business, science, research, or personal interest you have in the data set which you hope to explore.
+    - The pandemic has changed the world in many ways, including our working environment as well. It has made people rethink about the value of life and therefore reconsider work-life balance ethics. This dataset provides a chance to analyze how people's working mental health is affected by their background and working environments.
+6. Evidence that the data can be loaded into R. Load the data, and print the first few values of the response variable as evidence.
+```{r message = FALSE}
+library(readr)
+train = read_csv("train.csv")
+str(train)
+head(train)
+```
+
