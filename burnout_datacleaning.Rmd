@@ -1,0 +1,213 @@
+---
+title: "burnout_datacleaning"
+author: "Rachel Brynsvold"
+date: "7/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Read in, view
+
+```{r cars}
+#read in data
+library(readr)
+burnout_orig = read_csv("train.csv")
+
+#create copy to edit
+burnout_cl = burnout_orig
+
+#check structure of as-read
+str(burnout_orig)
+```
+
+## Examine, clean each field
+
+#### `Employee ID`
+Index field, no action necessary
+
+#### `Date of joining`
+Already date formatted; below is code (not evaluated) for a `Days in Org'` field 
+if needed in the future
+
+```{r, eval = FALSE}
+#ran model with `Days in Org` and with `Date of Joining` and got same results
+#so not adding, but wanted to leave the code in case we do find we want it for some reason
+
+#dataset goes from 1/1/2008 to 12/31/2008
+min(burnout_orig$"Date of Joining")
+max(burnout_orig$"Date of Joining")
+
+end_date = max(burnout_orig$"Date of Joining")
+#min(burnout_orig$"Date of Joining")
+
+burnout_cl$"Days in Org" = as.numeric(end_date - 
+                                        burnout_orig$"Date of Joining")
+burnout_cl$"Days in Org"[1:24]
+
+hist(burnout_cl$"Date of Joining", col = "lightblue",
+     main = "Histogram of Date of Joining field", 
+     breaks = 'months',
+     xlab = "Date of Joining" )
+```
+
+#### `Gender`
+Only 2 unique values; should be a factor
+
+```{r}
+unique(burnout_orig$"Gender")
+is.factor(burnout_orig$"Gender")
+
+burnout_cl$"Gender" = as.factor(burnout_orig$"Gender")
+is.factor(burnout_cl$"Gender")
+```
+       
+#### `Company Type`
+Only 2 unique values; should be a factor
+
+```{r}
+unique(burnout_orig$"Company Type")
+is.factor(burnout_orig$"Company Type")
+
+burnout_cl$"Company Type" = as.factor(burnout_orig$"Company Type")
+is.factor(burnout_cl$"Company Type")
+```
+
+#### `WFH Setup Available`
+Only 2 unique values; should be a factor
+
+```{r}
+unique(burnout_orig$"WFH Setup Available")
+is.factor(burnout_orig$"WFH Setup Available")
+
+burnout_cl$"WFH Setup Available" = as.factor(burnout_orig$"WFH Setup Available")
+is.factor(burnout_cl$"WFH Setup Available")
+
+#TODO - decide
+#consider changing levels so Yes = 2?
+#as.numeric(burnout_cl$"WFH Setup Available")
+#does not dictate the positive class though
+```
+
+The remainder of the fields are all numerical values where, per the data 
+dictionary, the values (whether continuous or integer) exist on a scale (eg
+higher Designation value translates to higher in the organization).  Therefore,
+for these fields we will be checking distributions and examining/handling NA's.
+
+#### `Designation`
+No NA's; no cleaning action needed
+
+```{r}
+unique(burnout_orig$"Designation")
+sum(is.na(burnout_orig$"Designation"))
+
+hist(burnout_cl$"Designation", col = "lightblue", probability = TRUE,
+     main = "Histogram of Designation field", 
+     xlab = "Designation" )
+```
+
+#### `Resource Allocation` 
+Proportion of NA's deemed acceptable for modeling
+
+```{r}
+sum(is.na(burnout_orig$"Resource Allocation"))
+ra_na_proportion = sum(is.na(burnout_orig$"Resource Allocation")) / 
+                            nrow(burnout_orig)
+
+hist(burnout_cl$"Resource Allocation", col = "lightblue", probability = TRUE,
+     main = "Histogram of Resource Allocation field", 
+     xlab = "Resource Allocation")
+```
+     
+`r signif(ra_na_proportion * 100, 3)`% of `Resource Allocation` values are NA.
+
+
+#### `Mental Fatigue Score`
+Proportion of NA's deemed acceptable for modeling
+
+```{r}
+sum(is.na(burnout_orig$"Mental Fatigue Score"))
+mf_na_proportion = sum(is.na(burnout_orig$"Mental Fatigue Score")) / 
+                            nrow(burnout_orig)
+
+hist(burnout_cl$"Mental Fatigue Score", col = "lightblue", probability = TRUE,
+     main = "Histogram of Mental Fatigue Score field", 
+     xlab = "Mental Fatigue Score")
+```
+     
+`r signif(mf_na_proportion * 100, 3)`% of `Mental Fatigue Score` values are NA.
+
+#### `Burn Rate`
+Records with no target value for the target field are of no use for training.  
+Should drop these records.
+
+```{r}
+sum(is.na(burnout_orig$"Burn Rate"))
+br_na_proportion = sum(is.na(burnout_orig$"Burn Rate")) / 
+                            nrow(burnout_orig)
+```
+     
+`r signif(br_na_proportion * 100, 3)`% of `Burn Rate` values are NA.
+
+```{r}
+#I've dropped these vals, but lm will drop any fields containing null by default
+#conceptually it seems important to drop, but practically it makes no difference,
+#and changing the length of the dataset could cause headaches down the line
+
+burnout_cl = burnout_cl[!is.na(burnout_orig$"Burn Rate"), ]
+#confirm drop
+sum(is.na(burnout_cl$"Burn Rate"))
+
+hist(burnout_cl$"Burn Rate", col = "lightblue", probability = TRUE,
+     main = "Histogram of Burn Rate field", 
+     xlab = "Burn Rate")
+```
+
+## Cleaning Wrap-up
+
+After dropping the records with `Burn Rate` NA, we should recalculate the NA
+proportions we calculated above.
+
+```{r}
+recalc_mf_na_proportion = sum(is.na(burnout_cl$"Mental Fatigue Score")) / 
+                            nrow(burnout_cl)
+recalc_ra_na_proportion = sum(is.na(burnout_cl$"Resource Allocation")) / 
+                            nrow(burnout_cl)
+```
+
+After dropping, `r signif(recalc_ra_na_proportion * 100, 3)`% of 
+`Resource Allocation` values are NA.    
+After dropping, `r signif(recalc_mf_na_proportion * 100, 3)`% of 
+`Mental Fatigue Score` values are NA.    
+
+Final look at the cleaned dataset: 
+
+```{r}
+str(burnout_cl)
+```
+
+
+```{r}
+#running a basic model to check that cleaning yielded a usable dataset
+#use na.exclude to handle remaining NA's (reference: https://stats.stackexchange.com/questions/492955/should-i-use-na-omit-or-na-exclude-in-a-linear-model-in-r)
+
+test = lm(`Burn Rate` ~ `Date of Joining` + Gender + `Company Type` + `WFH Setup Available`
+                + Designation + `Resource Allocation` + `Mental Fatigue Score`, 
+   data = burnout_cl, na.action = na.exclude)
+summary(test)
+```
+
+
+## Test write out/read back in
+```{r}
+#Does not read back in the same as it was written out
+#It appears we need to preface the modeling script with a condensed version of 
+#this cleaning script (or set params on the read_csv call to make it match)
+
+write_csv(burnout_cl, "train_cleaned.csv")
+reread = read_csv("train_cleaned.csv")
+all.equal(burnout_cl, reread)
+```
+
