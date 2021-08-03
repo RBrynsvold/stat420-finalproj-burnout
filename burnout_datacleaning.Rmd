@@ -26,15 +26,19 @@ str(burnout_orig)
 ## Examine, clean each field
 
 #### `Employee ID`
-Index field, no action necessary
+
+
+
+Index field, it's dropped because it's not relevant to burn rate.
 
 #### `Date of joining`
 Already date formatted; below is code (not evaluated) for a `Days in Org'` field 
 if needed in the future
 
-```{r, eval = FALSE}
+```{r}
 #ran model with `Days in Org` and with `Date of Joining` and got same results
 #so not adding, but wanted to leave the code in case we do find we want it for some reason
+#by Eric: change to include the code because it's easier to evaluate predicotrs in numeric format.
 
 #dataset goes from 1/1/2008 to 12/31/2008
 min(burnout_orig$"Date of Joining")
@@ -51,6 +55,9 @@ hist(burnout_cl$"Date of Joining", col = "lightblue",
      main = "Histogram of Date of Joining field", 
      breaks = 'months',
      xlab = "Date of Joining" )
+
+# remove 'Date of Joining'
+burnout_cl = burnout_cl[-2]
 ```
 
 #### `Gender`
@@ -98,10 +105,13 @@ for these fields we will be checking distributions and examining/handling NA's.
 
 #### `Designation`
 No NA's; no cleaning action needed
+Only has 6 discreet values. Convert to factor variable.
 
 ```{r}
 unique(burnout_orig$"Designation")
 sum(is.na(burnout_orig$"Designation"))
+
+burnout_orig$Designation = factor(burnout_orig$Designation)
 
 hist(burnout_cl$"Designation", col = "lightblue", probability = TRUE,
      main = "Histogram of Designation field", 
@@ -110,11 +120,15 @@ hist(burnout_cl$"Designation", col = "lightblue", probability = TRUE,
 
 #### `Resource Allocation` 
 Proportion of NA's deemed acceptable for modeling
+It has 10 discreet values except NA, converting to factor variable.
 
 ```{r}
+unique(burnout_orig$"Resource Allocation")
 sum(is.na(burnout_orig$"Resource Allocation"))
 ra_na_proportion = sum(is.na(burnout_orig$"Resource Allocation")) / 
                             nrow(burnout_orig)
+
+burnout_orig$"Resource Allocation" = factor(burnout_orig$"Resource Allocation")
 
 hist(burnout_cl$"Resource Allocation", col = "lightblue", probability = TRUE,
      main = "Histogram of Resource Allocation field", 
@@ -193,12 +207,17 @@ str(burnout_cl)
 #running a basic model to check that cleaning yielded a usable dataset
 #use na.exclude to handle remaining NA's (reference: https://stats.stackexchange.com/questions/492955/should-i-use-na-omit-or-na-exclude-in-a-linear-model-in-r)
 
-test = lm(`Burn Rate` ~ `Date of Joining` + Gender + `Company Type` + `WFH Setup Available`
+test = lm(`Burn Rate` ~ `Days in Org` + Gender + `Company Type` + `WFH Setup Available`
                 + Designation + `Resource Allocation` + `Mental Fatigue Score`, 
    data = burnout_cl, na.action = na.exclude)
 summary(test)
 ```
 
+renaming column names for easier manipulation
+```{r}
+colnames(burnout_cl) = c('ID', 'Gender', 'Type', 'WFH', 'Designation', 'Resource', 'Fatigue', 'Burn', 'Days')
+str(burnout_cl)
+```
 
 ## Test write out/read back in
 ```{r}

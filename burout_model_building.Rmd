@@ -1,0 +1,215 @@
+---
+title: "burnout_predictors"
+author: "Eric Yan"
+date: "7/31/2021"
+output: html_document
+---
+
+
+```{r}
+# Making the 'Resource' and 'Designation' predictor as factor, somehow make it impossible to fullfill the LINR assumption.
+library(faraway)
+library(readr)
+library(lmtest)
+library(leaps)
+library(knitr)
+train = read_csv("train_cleaned.csv")
+train$Gender = factor(train$Gender)
+train$'Type' = factor(train$'Type')
+train$'WFH' = factor(train$'WFH')
+#train$Resource = factor(train$Resource)
+#train$Designation = factor(train$Designation)
+train  = train[-1]  # drop ID
+train = na.exclude(train) # exclude NA to easier data manipulation
+str(train) 
+```
+
+Diagnostics function to quickly check for LINE assumptions and model evaluation metrics, including adjusted R-square, LOOCV and BIC.
+</br> BIC is choosen over AIC here because sample size is large.
+```{r}
+diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', alpha = 0.05,
+                       plotit = TRUE, testit = TRUE) {
+  
+  if (plotit) {
+    par(mfrow = c(1, 2))
+    plot(fitted(model), resid(model), xlab = 'Fitted', ylab = 'Residuals',
+         col = pcol, pch = 20, cex = 2)
+    abline(h = 0, col = lcol, lwd = 3, main = "Fitted vs Residuals")
+    
+    qqnorm(resid(model), col = pcol, pch = 20, cex = 1, 
+           main = "Normal Q-Q plot")
+    qqline(resid(model), col = lcol, lwd = 3)
+  }
+  
+  if (testit) {
+    p_val = shapiro.test(resid(model))$p.value
+    p_val_bp = as.numeric(bptest(model)$p.value)
+    adj_r = summary(model)$adj.r.squared
+    loocv = sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2, na.rm = TRUE))
+    n = length(resid(model))
+    bic = extractAIC(model, k = log(n))[2]
+    data.frame(shapiro.test = p_val, bptest = p_val_bp, adj.r.squared = adj_r, loocv = loocv, BIC = bic)
+  }
+}
+```
+
+
+Randomly select `sel_size = 200` rows for selection testing
+```{r}
+sel_size = 1000
+set.seed(2021)
+train = train[sample(nrow(train), sel_size),]
+nrow(train)
+```
+
+
+Checking LINE assumptions, and find out that 'Linear', 'Independent Variance', 'Variance Normality' and 'Equal Variance' assumptions are violated.
+```{r}
+mod_add = lm(Burn ~ ., data = train, na.action = na.exclude)
+diagnostics(mod_add)
+summary(mod_add)$adj.r.squared
+```
+</br>
+Check for conlinearity. 'Designation' and 'Resource' have clear colinearity issue.
+```{r}
+vif(mod_add)[vif(mod_add) > 5]
+```
+
+</br>Check for corelation between 'Burn' and 'Designation' or 'Resource', with respect to the rest of the predictors.
+```{r}
+mod_co_De = lm(Burn ~ . - Designation, data = train)
+mod_co = lm(Burn ~ . - Burn, data = train)
+mod_co_Re = lm(Burn ~ . - Resource, data = train)
+cor(resid(mod_co_De), resid(mod_co))
+cor(resid(mod_co_Re), resid(mod_co))
+```
+</br> The above results shows that 'Designation' has higher colinearity issue with the rest predictors.
+
+</br>Refit the model without `Designation`. The updated model no longer has colinearity issue, and the 'Equal Variance' assumption is followed by $/alpha = 0.05$.
+```{r}
+mod_add_2 = lm(Burn ~ . - Designation, data = train, na.action = na.exclude)
+vif(mod_add_2)
+diagnostics(mod_add_2, plotit = FALSE)
+```
+
+```{r}
+summary(mod_add_2)$coefficients
+```
+
+Check possible relation between three factor predictor and response 'Burn' by boxplot. The finding matches with the p_values of the basic model `mod_add_2`, where `Type` has no significant linear relationship with the response. 
+```{r}
+par(mfrow = c(2, 3))
+boxplot(Burn ~ Gender, data = train)
+boxplot(Burn ~ Type, data = train)
+boxplot(Burn ~ WFH, data = train)
+boxplot(Burn ~ Resource, data = train)
+```
+</br>Check for relationship of numeric predictors by scatterplots.
+```{r}
+par(mfrow = c(1, 2))
+plot(Burn ~ Fatigue, data = train)
+plot(Burn ~ Days, data = train)
+```
+</br> From the plot, it's obvious that 'Days' and the response has no clear relationship.
+</br> 'Fatigue' predicotr has a slightly curve relationship with 'Burn'. By applying different power to the predictor, the following plots are obtained. It shows the power of `1.4` is the sweet spot and make the relationship more linear.
+
+```{r}
+par(mfrow = c(2, 2))
+plot(Burn ~ Fatigue, data = train)
+quad_2_fatigue = train$Fatigue ^ 2
+plot(train$Burn ~ quad_2_fatigue)
+quad_1.5_fatigue = train$Fatigue ^ 1.5
+plot(train$Burn ~ quad_1.5_fatigue)
+quad_1.4_fatigue = train$Fatigue ^ 1.4
+plot(train$Burn ~ quad_1.4_fatigue)
+```
+</br> It also shows that the variance of lower Fatigue is significant lower than than the higher fatigue. It's confirmed by calculation as well.
+```{r}
+var(train$Fatigue[train$Fatigue > mean(train$Fatigue)])
+var(train$Fatigue < mean(train$Fatigue))
+```
+
+</br> Based on the above observation, I'm taking out 'Type' and 'Days' away from the model. The anova test also confirms the null hypothesis $H_0: \beta_{Type} = \beta_{Days} = 0$.
+```{r}
+mod_add_3 = lm(Burn ~ Gender + WFH + Resource + Fatigue, data = train, na.action = na.exclude)
+diagnostics(mod_add_3, plotit = FALSE)
+anova(mod_add_3, mod_add_2)
+```
+
+</br> Adding an extra term of 1.4 power of Fatigue. Interestingly, it doesn't improve the model at all. The shapiro test even fails under $\alpha = 0.01$. However, the anova test also suggests the power term has significant linear relationship with the response.
+```{r}
+mod_pow_1 = lm(Burn ~ Gender + WFH + Resource + Fatigue + I(Fatigue ^ 1.4), data = train)
+diagnostics(mod_pow_1, plotit = FALSE)
+anova(mod_add_3, mod_pow_1)
+```
+</br>So far, there're two preferred models. The additive model with 'Gender', 'WFH', 'Resource' and 'Fatigue', and the model with an extra term of 'Fatigue' to the power of `1.4`.
+</br>Neither model passes both shapiro test or bptest.
+</br> Let's check for influential data.
+```{r}
+sum(cooks.distance(mod_add_3) > 4 / length(cooks.distance(mod_add_3)))
+sum(cooks.distance(mod_pow_1) > 4 / length(cooks.distance(mod_pow_1))) 
+```
+</br> Excluding the influential points and refit the power model.
+</br> Influential points in both models are excluded, so that models could be refit on the same data and conduct anova test later.
+```{r}
+pow_mod_cd = cooks.distance(mod_pow_1) < 4 / length(cooks.distance(mod_pow_1))
+add_mod_cd = cooks.distance(mod_add_3) < 4 / length(cooks.distance(mod_add_3))
+mod_pow_2 = lm(Burn ~ Gender + WFH + Resource + Fatigue + I(Fatigue ^ 1.4), 
+               data = train, 
+               subset = pow_mod_cd & add_mod_cd)
+diagnostics(mod_pow_2, plotit = FALSE)
+```
+
+```{r}
+mod_add_4 = lm(Burn ~ Gender + WFH + Resource + Fatigue, 
+               data = train, 
+               subset = pow_mod_cd & add_mod_cd)
+diagnostics(mod_add_4, plotit = FALSE)
+```
+Removing influential points on the 4 predictors additive model, however, meet the 'Variance Normality' assumption by $\alpha = 0.01$.
+</br> Unfortunately, no model so far could full fill the 'Equal Variance' and 'Variance Normality' assumptions concurrently. It's mostly likely because the variance is dependent on the `Fatigue` predictor as well, as highlighted in the previous plot. Therefore, compromise must be made when choosing the preferred model.
+</br> In summary, here are the 5 models that were tested and their metrics.
+```{r}
+model_list = list(mod_add, mod_add_2, mod_add_3, mod_add_4, mod_pow_1, mod_pow_2)
+metrics_table = matrix(ncol = 5, nrow = 0)
+formulas = rep('', 5)
+for (i in 1:length(model_list)) {
+  formulas[i] = toString(model_list[[i]]$call$formula)
+  temp_row = unlist(diagnostics(model_list[[i]], plotit = FALSE))
+  metrics_table = rbind(metrics_table, temp_row)
+}
+colnames(metrics_table) = c('Shapiro Test', 'BP Test', 'Adj R.sq', 'LOOCV', 'BIC')
+rownames(metrics_table) = formulas
+kable(metrics_table)
+```
+
+
+----------------------------
+</br>Next, let's try to find another preferred model by applying the backward `step` function to involve interactions and quadratic relationship.
+```{r}
+mod_all = lm(Burn ~ . ^ 2, data = train)
+mod_bic_back = step(mod_all, trace = 0, k = log(length(resid(mod_all))))
+mod_bic_back$call$formula
+```
+
+</br>However, the selected model only has two predictors, without any higher power term or interaction. Checking the metrics, this model also violates the LINE assumptions.
+```{r}
+rowname = toString(mod_bic_back$call$formula)
+formulas = c(formulas, rowname)
+metrics_table = rbind(metrics_table, unlist(diagnostics(mod_bic_back, plotit = FALSE)))
+rownames(metrics_table) = formulas
+```
+
+</br>Removing influential points in this case doesn't help with the assumption or model metrics.
+```{r}
+bic_mod_cd = cooks.distance(mod_bic_back) < 4 / length(cooks.distance(mod_bic_back))
+mod_bic_back_2 = lm(Burn ~ Resource + Fatigue + Resource:Fatigue, data = train, subset = bic_mod_cd)
+rowname = toString(mod_bic_back_2$call$formula)
+formulas = c(formulas, rowname)
+metrics_table = rbind(metrics_table, unlist(diagnostics(mod_bic_back_2, plotit = FALSE)))
+rownames(metrics_table) = formulas
+kable(metrics_table)
+```
+
+
+
