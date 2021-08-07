@@ -1,6 +1,5 @@
 ---
 title: "Predicting Employee Burnout Rate in a Post-Pandemic World"
-#author: "Eric Yan, Rachel Brynsvold" TODO: include author names in appendix
 date: "8/6/2021"
 output: html_document
 ---
@@ -27,20 +26,22 @@ This dataset has 9 variables in total, including 5 continuous variables (Date of
    - `Burn Rate`: Rate of saturation or burnout while working.
      - Range is [0.0, 1.0] where higher number corresponds to more burn out.
      
-</br> The dataset was obtained from a kaggle contest titled "Are Your Employees Burning Out", which can be assessed [here](https://www.kaggle.com/blurredmachine/are-your-employees-burning-out). </br>
+</br> The dataset was obtained from a kaggle contest titled "Are Your Employees Burning Out", which can be accessed [here](https://www.kaggle.com/blurredmachine/are-your-employees-burning-out). </br>
 *Please note that the original HackerEarth competiton is no longer accessible.*
 </br></br>
 
-TODO: add modeling goals??
--adj rsq > 90
--interpretable
--normal
--equal variance
+We translate our high-level goals for this analysis into the following four specific modeling goals:</br>
+
+   - Adjusted R-squared > 90%     
+   - Model simple enough to be interpretable     
+   - Meets the 'Normality' assumption of linear regression     
+   - Meets the 'Equal Variance' assumption of linear regression     
 
 
-# Methods</br>
+# </br> Methods </br>
 
-Step 0: Load packages
+### Setup & Modeling Preparation</br>
+
 ```{r, message=FALSE}
 # load packages
 library(faraway)
@@ -51,21 +52,18 @@ library(knitr)
 ```
 
 </br>We begin by loading in the data and cleaning it.</br>
-*Please note that for purposes of report body brevity, this is a condensed cleaning script; to see the complete EDA process and development of this final cleaning script, please refer to appendix BLANK. * 
-TODO: add data cleaning to appendix, add appendix ref here
+*Please note that for purposes of report body brevity, this is a condensed cleaning script; to see the complete EDA process and development of this final cleaning script, please refer to the Appendix. * 
 ```{r}
 train = read_csv("train_cleaned.csv")
 train$Gender = factor(train$Gender)
 train$'Type' = factor(train$'Type')
 train$'WFH' = factor(train$'WFH')
 train  = train[-1]  # drop ID - no relevance to training or results for this task
-train = na.exclude(train) # exclude NA for ease of data manipulation and modeling
-str(train) 
+train_complete = na.exclude(train) # exclude NA for ease of data manipulation and modeling
+str(train_complete) 
 ```
 
-</br>Next, we define a diagnostics function to quickly check the LINE assumptions and calculate model evaluation metrics, including adjusted R-squared, LOOCV, and BIC.
-TODO: decide about BIC/AIC 
-</br> BIC is chosen over AIC since we are prioritizing interpretability in our modeling goals.
+</br>Next, we define a diagnostics function to quickly check the LINE assumptions and calculate model evaluation metrics, including adjusted R-squared, LOOCV, and BIC.  (*BIC is chosen over AIC since we are prioritizing interpretability/model simplicity in our modeling goals.*)
 ```{r}
 diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', alpha = 0.05,
                        plotit = TRUE, testit = TRUE) {
@@ -93,23 +91,26 @@ diagnostics = function(model, pcol = 'grey', lcol = 'dodgerblue', alpha = 0.05,
 }
 ```
 
-</br> TODO - remove subselection on final
-Randomly select `sel_size = 1000` rows for selection testing
+</br>We randomly select 1000 rows for selection testing.  This will allow us to us fit many different models and perform the Shapiro-Wilk test (which is limited in sample size).
 ```{r}
 sel_size = 1000
 set.seed(2021)
-train = train[sample(nrow(train), sel_size),]
+train = train_complete[sample(nrow(train_complete), sel_size),]
 nrow(train)
 ```
 
+### </br>Simple Additive Model </br>
+
 </br> Begin our model search with a simple additive model.  Checking the Fitted vs. Residuals and Q-Q plots, we see that the 'Equal Variance' assumption is violated for this model, while the 'Normality' assumption is not (using $\alpha = 0.10$ for the Shapiro-Wilk normality and Breusch-Pagan homoskedasticity tests).
 ```{r}
-mod_add = lm(Burn ~ ., data = train, na.action = na.exclude)
+mod_add = lm(Burn ~ ., data = train)
 diagnostics(mod_add)
 summary(mod_add)$adj.r.squared
 ```
 
-</br> Next we check the model for collinearity.  If any is identified, it will be crucial to resolve it if we want our model to be interpretable and not only predictive.  First, we check visually with a pairs plot of all the variables:
+### </br> Collinearity </br>   
+
+</br> Check the model for collinearity.  If any is identified, it will be crucial to resolve it if we want our model to be interpretable/prescriptive and not only predictive.  First, we check visually with a pairs plot of all the variables:
 ```{r}
 pairs(train)
 ```
@@ -118,10 +119,9 @@ pairs(train)
 ```{r}
 sort(vif(mod_add), decreasing = TRUE)
 ```
+`Resource` is found to have a VIF $> 5$ (our typical 'high VIF' heuristic), and `Designation` is close behind with a VIF $> 4.5$.  
 
-</br>`Resource` is found to have a $VIF > 5$ (our typical 'high VIF' heuristic), and `Designation` is close behind with a $VIF > 4.5$.  So now we check these predictors for correlation with respect to the rest of the predictors: </br> 
-1. `Burn` and `Designation`      
-2. `Burn` and `Resource`
+</br>So now we check `Designation` and `Resource` for correlation with respect to the rest of the predictors:
 ```{r}
 mod_co = lm(Burn ~ . - Burn, data = train)            # all predictors
 mod_co_De = lm(Burn ~ . - Designation, data = train)  # remove Designation
@@ -133,15 +133,15 @@ cor(resid(mod_co_Re), resid(mod_co))
 
 </br> The above result shows that `Designation` has higher collinearity with the rest predictors than `Resource`.  Therefore we decide to refit the model without `Designation`. 
 ```{r}
-mod_add_2 = lm(Burn ~ . - Designation, data = train, na.action = na.exclude)
+mod_add_2 = lm(Burn ~ . - Designation, data = train)
 vif(mod_add_2)
-diagnostics(mod_add_2, plotit = FALSE)
+diagnostics(mod_add_2)
 ```
-</br>We see the updated model no longer has the collinearity issue we previously observed, although we see the 'Equal Variance' assumption is still violated at $\alpha = 0.10$.</br>
+We see the updated model no longer has the collinearity issue we previously observed (all VIF $< 5$), but we see the 'Equal Variance' assumption is still violated at $\alpha = 0.10$.</br>
 
-</br>In this next section, we'll use plots to help us zoom in on other variable relationships and look for opportunities for transformations.</br>
+### </br> Variable Selection - Predictor Significance </br>     
 
-</br>Check possible relationships between categorical/discrete-valued numeric predictors and response 'Burn' via a boxplot. 
+Check possible relationships between categorical/discrete-valued numeric predictors and response 'Burn' via a boxplot. 
 ```{r}
 par(mfrow = c(2, 3))
 boxplot(Burn ~ Gender, data = train)
@@ -150,26 +150,36 @@ boxplot(Burn ~ WFH, data = train)
 boxplot(Burn ~ Resource, data = train)
 ```
 
-From the boxplots we observe the following:</br>   
+From the boxplots we can qualitatively observe the following:</br>   
 1. `Gender` has some impact on `Burn`   
 2. `Type` has minimal/no impact on `Burn`     
 3. `WFH` has noticeable impact on `Burn`    
 4. `Resource` has considerable impact on `Burn`    
 
-Comparing these findings with the `mod_add_2` coefficients above, they each mesh with their respective coefficient t-test p-values, where `Type` has no significant linear relationship with the response at $\alpha = 0.05$, and `Gender`, `WFH`, and `Resouce` do. 
+Comparing these findings with the `mod_add_2` coefficients above, they each mesh with their respective coefficient t-test p-values, where `Type` has no significant linear relationship with the response at $\alpha = 0.05$, and `Gender`, `WFH`, and `Resouce` all do. 
 ```{r}
 summary(mod_add_2)$coefficients
 ```
 
-</br>Next, check for relationships between continuous numeric predictors and response via scatterplots.
+</br> Based on the above observations, we remove `Type` and `Days` from the model. The anova test confirms the corresponding null hypothesis:  $H_0: \beta_{Type} = \beta_{Days} = 0$.
+```{r}
+mod_add_3 = lm(Burn ~ Gender + WFH + Resource + Fatigue, data = train)
+diagnostics(mod_add_3)
+anova(mod_add_3, mod_add_2)
+```
+However this model still violates the 'Equal Variance' assumption at $\alpha = 0.01$.
+
+### </br> Transformations </br>    
+
+Next, check for relationships between continuous numeric predictors and response via scatterplots.
 ```{r}
 par(mfrow = c(1, 2))
 plot(Burn ~ Fatigue, data = train)
 plot(Burn ~ Days, data = train)
 ```
-</br> From the plot, it's clear that 'Days' and the response have no relationship (which again, meshes with the t-test p-value for the coefficient).</br>
+</br> From the plot, it's clear that `Days` and the response have no linear relationship (which again, meshes with the t-test p-value for the coefficient).
 
-</br> However, we see the 'Fatigue' predictor has a somewhat curved relationship with 'Burn'. By applying different powers to the predictor, the following plots are obtained. 
+</br> However, we see the `Fatigue` predictor has a somewhat curved relationship with `Burn`. By applying different powers to the predictor, the following plots are obtained. 
 ```{r}
 par(mfrow = c(2, 2))
 plot(Burn ~ Fatigue, data = train)
@@ -180,71 +190,41 @@ plot(train$Burn ~ quad_1.5_fatigue)
 quad_1.4_fatigue = train$Fatigue ^ 1.4
 plot(train$Burn ~ quad_1.4_fatigue)
 ```
-</br> It shows the power of `1.4` is the sweet spot in making the relationship more linear.
+</br> We find the power of `1.4` is the sweet spot in making the relationship more linear.
 
-</br> It also shows that the variance of lower `Fatigue` is clearly lower than than the higher fatigue. We confirm by calculating the variance for `Fatigue` above the mean and below the mean.
+</br> We also observe that the variance increases with increasing `Fatigue`. We confirm this quantitatively by calculating the variance for `Fatigue` above the mean and below the mean.
 ```{r}
 var(train$Fatigue[train$Fatigue > mean(train$Fatigue)])
 var(train$Fatigue < mean(train$Fatigue))
 ```
 
-</br> Based on the above observations, we remove `Type` and `Days` from the model. The anova test also confirms the null hypothesis:  $H_0: \beta_{Type} = \beta_{Days} = 0$.
+</br> Fit a new model adding an extra term of 1.4 power of `Fatigue`.
 ```{r}
-#TODO: remove all na.action - since all na's are dropped
-mod_add_3 = lm(Burn ~ Gender + WFH + Resource + Fatigue, data = train, na.action = na.exclude)
-diagnostics(mod_add_3, plotit = FALSE)
-anova(mod_add_3, mod_add_2)
-```
-
-</br> Next we try a Box-Cox transformation of the response variable
-TODO - probably remove - model produces negative predictions
-could also try dropping those rows?? only 15 - but seems bad
-```{r}
-#boxcox(mod_add_3, plotit = TRUE)
-min(train$Burn)
-min(predict(mod_add_3))
-sum(predict(mod_add_3) < 0)
-```
-
-</br> Fit a new model adding an extra term of 1.4 power of `Fatigue`. We do see some marginal increase in adjusted r-squared in this model compared to the previous one and the anova test clearly favors the alternate model (with the added power term), but now the Shapiro-Wilk test fails at $\alpha = 0.01$.
-```{r}
-#TODO: figure out if we leave both fatigue terms in (model heirarchy?)  tried it w/o and it doesn't help
 mod_pow_1 = lm(Burn ~ Gender + WFH + Resource + Fatigue + I(Fatigue ^ 1.4), data = train)
 diagnostics(mod_pow_1, plotit = FALSE)
 anova(mod_add_3, mod_pow_1)
 ```
+We do see some marginal increase in adjusted r-squared in this model compared to the previous one and the anova test clearly favors the alternate model.  However while the prior model did not violate the 'Normality' assumption, the Shapiro-Wilk test now fails at $\alpha = 0.01$.
 
-TODO: probably move this text to results/discussion
-TODO: not sure the 1.4 power model is preferred, in spite of the anova result
-</br>So far, there are two preferred models. The additive model with 'Gender', 'WFH', 'Resource' and 'Fatigue', and the model with an extra term of 'Fatigue' to the power of `1.4`.
-</br>Neither model passes both Shapiro-Wilk test or the Breush-Pagan test.
+### </br> Influential Points </br>
 
-</br> In this section we'll examine the effects of influential data.
-
-</br>Start by identifying any influential points:
+</br>Start by identifying any influential points in our two current models of interest:
 ```{r}
-inflpts_mod_add_3 = cooks.distance(mod_add_3) > 4 / length(cooks.distance(mod_add_3))
-inflpts_mod_pow_1 = cooks.distance(mod_pow_1) > 4 / length(cooks.distance(mod_pow_1))
-c("mod_add_3: ", sum(inflpts_mod_add_3), sum(inflpts_mod_add_3) / length(train) )
-c("mod_pow_1: ", sum(inflpts_mod_pow_1), sum(inflpts_mod_pow_1) / length(train) )
+add_mod_cd = cooks.distance(mod_add_3) > 4 / length(cooks.distance(mod_add_3))
+pow_mod_cd = cooks.distance(mod_pow_1) > 4 / length(cooks.distance(mod_pow_1))
+c("mod_add_3: ", sum(add_mod_cd), sum(add_mod_cd) / nrow(train) )
+c("mod_pow_1: ", sum(pow_mod_cd), sum(pow_mod_cd) / nrow(train) )
 ```
-</br>Each model has a relatively small number and percentage of influential points; we're comfortable experimenting with dropping them.
+Each model has a relatively small number and proportion of influential points; we're comfortable experimenting with dropping them.
 
-</br> Influential points in both models are excluded, so that models could be refit on the same data and compared via anova test later if they show promise:
+</br> Influential points in both models are excluded so that models could be refit on the same data and compared via anova test if they show promise.  Refit and re-evaluate:
 ```{r}
-pow_mod_cd = cooks.distance(mod_pow_1) < 4 / length(cooks.distance(mod_pow_1))
-add_mod_cd = cooks.distance(mod_add_3) < 4 / length(cooks.distance(mod_add_3))
-```
-
-</br>Refit both models without excluded data and evaluate:
-```{r}
-#TODO - maybe rename for clarity
 mod_pow_2 = lm(Burn ~ Gender + WFH + Resource + Fatigue + I(Fatigue ^ 1.4), 
                data = train, 
                subset = pow_mod_cd & add_mod_cd)
 diagnostics(mod_pow_2, plotit = FALSE)
 ```
-</br>This modified exponential model still meets neither 'Equal Variance' or 'Normality' assumptions.</br>
+</br>This modified exponential model still fails to meet both 'Equal Variance' and 'Normality' assumptions.</br>
 
 ```{r}
 mod_add_4 = lm(Burn ~ Gender + WFH + Resource + Fatigue, 
@@ -252,19 +232,72 @@ mod_add_4 = lm(Burn ~ Gender + WFH + Resource + Fatigue,
                subset = pow_mod_cd & add_mod_cd)
 diagnostics(mod_add_4, plotit = FALSE)
 ```
+This modified additive model has traded meeting the 'Normality' assumption for now instead meeting the 'Equal Variance' assumption.
 
-</br> This modified additive model has traded meeting the 'Normality' assumption for now meeting the 'Equal Variance' assumption.
+### </br> Interactions, BIC, AIC </br>
 
-TODO - move to results
-</br> Unfortunately, our model search so far has yielded no model that could full fill the 'Equal Variance' and 'Variance Normality' assumptions concurrently. It's mostly likely because the variance is dependent on the `Fatigue` predictor as well, as highlighted in the previous plot. Therefore, compromise must be made when choosing the preferred model.
-
-#Results
-
-</br> In summary, here are the 5 models that were tested and their metrics.
+</br> Next, let's continue our model search by applying backwards BIC to a larger model fitted with all predictors and all possible first-order interaction terms.
 ```{r}
-model_list = list(mod_add, mod_add_2, mod_add_3, mod_add_4, mod_pow_1, mod_pow_2)
+mod_all = lm(Burn ~ . ^ 2, data = train)
+
+mod_bic_back = step(mod_all, trace = 0, k = log(length(resid(mod_all))))
+mod_bic_back$call$formula
+```
+
+</br>The model selected by backwards BIC is quite simplistic, with only has two predictors and their interaction. Checking the metrics, this model also violates the 'Equal Variance' and 'Normality' assumptions at $\alpha = 0.10$. 
+```{r}
+diagnostics(mod_bic_back, plotit = FALSE)
+```
+
+</br> Since backwards BIC appears to have eliminated too many terms and potentially oversimplified the model, we'll also try backwards AIC:
+```{r}
+mod_aic_back = step(mod_all, trace = 0)
+mod_aic_back$call$formula
+```
+
+```{r}
+diagnostics(mod_aic_back, plotit = FALSE)
+```
+However, this model also violates the 'Equal Variance' and 'Normality' assumptions at $\alpha = 0.10$. 
+
+</br>Try removing influential points again:
+```{r}
+bic_mod_cd = cooks.distance(mod_bic_back) > 4 / length(cooks.distance(mod_bic_back))
+aic_mod_cd = cooks.distance(mod_aic_back) > 4 / length(cooks.distance(mod_aic_back))
+c("mod_bic_back: ", sum(bic_mod_cd), sum(bic_mod_cd) / nrow(train) )
+c("mod_aic_back: ", sum(aic_mod_cd), sum(aic_mod_cd) / nrow(train) )
+```
+Again, each model has a relatively small number and proportion of influential points; we're comfortable experimenting with dropping them.
+
+</br> Refit and re-evaluate:
+```{r}
+bic_mod_cd = cooks.distance(mod_bic_back) < 4 / length(cooks.distance(mod_bic_back))
+aic_mod_cd = cooks.distance(mod_aic_back) < 4 / length(cooks.distance(mod_aic_back))
+
+mod_bic_back_2 = lm(Burn ~ Resource + Fatigue + Resource:Fatigue, data = train, 
+                        subset = bic_mod_cd & aic_mod_cd)
+mod_aic_back_2 = lm(Burn ~ Gender + WFH + Designation + Resource + Fatigue +
+                        Designation:Fatigue + Resource:Fatigue, data = train, 
+                        subset = bic_mod_cd & aic_mod_cd)
+
+diagnostics(mod_bic_back_2, plotit=FALSE)
+diagnostics(mod_aic_back_2, plotit=FALSE)
+```
+
+Neither the backwards BIC or backwards AIC is able to meet either the 'Equal Variance' or 'Normality' assumptions at $\alpha = 0.10$ through removal of influential points.</br>
+
+</br> With this we conclude our model search.</br></br>
+
+
+# </br> Results </br>
+
+Below is a summary of all the models fitted during our model search:
+```{r}
+model_list = list(mod_add, mod_add_2, mod_add_3, mod_add_4, 
+                  mod_pow_1, mod_pow_2, 
+                  mod_bic_back, mod_aic_back, mod_bic_back_2, mod_aic_back_2 )
 metrics_table = matrix(ncol = 5, nrow = 0)
-formulas = rep('', 5)
+formulas = rep('', length(model_list))
 for (i in 1:length(model_list)) {
   formulas[i] = toString(model_list[[i]]$call$formula)
   temp_row = unlist(diagnostics(model_list[[i]], plotit = FALSE))
@@ -275,40 +308,252 @@ rownames(metrics_table) = formulas
 kable(metrics_table)
 ```
 
-
-----------------------------
-</br>Next, let's try to find another preferred model by applying the backward `step` function to involve interactions and quadratic relationship.
+</br> Unfortunately, our model search yielded no model that could fulfill the 'Equal Variance' and 'Normality' assumptions concurrently, so we must make tradeoffs between these two assumptions. We believe that this persistence of the 'Equal Variance' assumption violation is mostly likely because the variance is a function  of`Fatigue`, as observed previously in this plot:
 ```{r}
-mod_all = lm(Burn ~ . ^ 2, data = train)
-mod_bic_back = step(mod_all, trace = 0, k = log(length(resid(mod_all))))
-mod_bic_back$call$formula
+plot(Burn ~ Fatigue, data = train)
 ```
 
-</br>However, the selected model only has two predictors, without any higher power term or interaction. Checking the metrics, this model also violates the LINE assumptions.
-```{r}
-diagnostics(mod_bic_back)
-```
+</br> Interestingly, most of our models meet our modeling goal of Adjusted R-Squared > 90%, and are in fact clustered tightly between 91.7% - 92.5%.  This gives us a lot of leeway in which model can otherwise 'best' fulfill the remaining three modeling goals.
 
-TODO: also do AIC
-
+</br> We'll look at a reduced metrics table with only those models that meet three of the four modeling criteria:
 ```{r}
-rowname = toString(mod_bic_back$call$formula)
-formulas = c(formulas, rowname)
-metrics_table = rbind(metrics_table, unlist(diagnostics(mod_bic_back, plotit = FALSE)))
-rownames(metrics_table) = formulas
-```
-
-</br>Removing influential points in this case doesn't help with the assumption or model metrics.
-```{r}
-bic_mod_cd = cooks.distance(mod_bic_back) < 4 / length(cooks.distance(mod_bic_back))
-mod_bic_back_2 = lm(Burn ~ Resource + Fatigue + Resource:Fatigue, data = train, subset = bic_mod_cd)
-rowname = toString(mod_bic_back_2$call$formula)
-formulas = c(formulas, rowname)
-metrics_table = rbind(metrics_table, unlist(diagnostics(mod_bic_back_2, plotit = FALSE)))
+model_list = list(mod_add, mod_add_2, mod_add_3)
+metrics_table = matrix(ncol = 5, nrow = 0)
+formulas = rep('', length(model_list))
+for (i in 1:length(model_list)) {
+  formulas[i] = toString(model_list[[i]]$call$formula)
+  temp_row = unlist(diagnostics(model_list[[i]], plotit = FALSE))
+  metrics_table = rbind(metrics_table, temp_row)
+}
+colnames(metrics_table) = c('BP Test', 'Shapiro Test', 'Adj R.sq', 'LOOCV', 'BIC')
 rownames(metrics_table) = formulas
 kable(metrics_table)
-#TODO: summarize all models in one table, add note/extra intervention field for things like influential points, mayb also add model name
+```
+
+</br>Anova test for all three models:
+```{r}
+anova(mod_add_3, mod_add_2, mod_add)
+#anova(mod_add, mod_add_3)
+```
+
+</br>Since the Fitted vs. Residual plot, Normal Q-Q plot, and Adjusted R-squared for each of these models is virtually identical (see previous plots in Methods section), and the anova test prefers the simplest model, we choose `mod_3_add`, an additive model of `Gender`, `WFH` `Resource`, and `Fatigue`, as the model that best fulfills our initial modeling goals.
+
+</br> Finally, we fit the selected model to the complete data set:
+```{r}
+mod_final = lm(Burn ~ Gender + WFH + Resource + Fatigue, data = train_complete)
+summary(mod_final)
+diagnostics(mod_final, testit = FALSE)
 ```
 
 
+# </br> Discussion </br>
 
+Our chosen model gives us the ability to make reliable predictions of an employee's level of burnout.  Since it violates the 'Equal Variance' assumption, it must be used with the caveat that predictions will be somewhat less accurate for employees reporting higher Mental Fatigue Scores.  
+
+</br> Because the model is so simple, we are able to make the following recommendations to companies and individuals interested in combatting burnout:</br>     
+
+
+   - Gender: Males are somewhat more prone to burnout, and should perhaps take extra precautions against it.     
+   - Work From Home: Availability of an appropriate work-from-home setup is associated with lower burnout.  Whether this is an issue of correlation or causation is beyond the scope of this analysis; perhaps it is not the simple availability of such setups that drives the effect, but that companies with better work/life balance cultures are more likely to offer an appropriate WFH setup.  But regardless of the effect direction, employers should seek to provide a WFH setup (or perhaps foster a company culture where that is normal and accepted), and employees can be advised to seek companies that do so.     
+   - Resource Allocation: More hours allocated to work today is associated with higher burnout.  Both employers and employees can be advised to avoid excessive work hours.     
+   - Mental Fatigue Score: A higher self-reported stress level is associated with higher burnout.  Employers should regularly and actively assess employee mental fatigue levels, and take action to reduce it when it is found to be high.  In the absence of this employer intervention, employees should self-asses their own mental fatigue level, and take the necessary steps to alleviate it before it escalates to full burnout.    
+   
+</br> A final word about the violated 'Equal Variance' assumption.  Above we've discussed how a higher mental fatigue score is indicative of a higher level of burnout.  Therefore we can also conclude that a person with a high mental fatigue score is already known to be at increased risk of burnout, and interventions should be taken in that case, regardless of the exact predicted burnout score.
+
+
+# </br>Appendix</br>
+
+**All code in this appendix shows the inital data cleaning process**</br>
+
+Read in, view
+
+```{r cars}
+#read in data
+burnout_orig = read_csv("train.csv")
+
+#create copy to edit
+burnout_cl = burnout_orig
+
+#check structure of as-read
+str(burnout_orig)
+```
+
+</br>Examine, clean each field</br>
+
+`Employee ID`</br>
+Index field, it's dropped because it's not relevant to burn rate.</br>
+
+</br>`Date of joining`</br>
+
+Convert date format to numeric 'Days in Org'; drop original
+```{r}
+#dataset goes from 1/1/2008 to 12/31/2008
+min(burnout_orig$"Date of Joining")
+max(burnout_orig$"Date of Joining")
+
+end_date = max(burnout_orig$"Date of Joining")
+
+burnout_cl$"Days in Org" = as.numeric(end_date - 
+                                        burnout_orig$"Date of Joining")
+burnout_cl$"Days in Org"[1:24]
+
+hist(burnout_cl$"Date of Joining", col = "lightblue",
+     main = "Histogram of Date of Joining field", 
+     breaks = 'months',
+     xlab = "Date of Joining" )
+
+# remove 'Date of Joining'
+burnout_cl = burnout_cl[-2]
+```
+
+</br>`Gender`</br>
+
+Only 2 unique values; should be a factor
+```{r}
+unique(burnout_orig$"Gender")
+is.factor(burnout_orig$"Gender")
+
+burnout_cl$"Gender" = as.factor(burnout_orig$"Gender")
+is.factor(burnout_cl$"Gender")
+```
+       
+</br>`Company Type`</br>
+
+Only 2 unique values; should be a factor
+```{r}
+unique(burnout_orig$"Company Type")
+is.factor(burnout_orig$"Company Type")
+
+burnout_cl$"Company Type" = as.factor(burnout_orig$"Company Type")
+is.factor(burnout_cl$"Company Type")
+```
+
+</br>`WFH Setup Available`</br>
+
+Only 2 unique values; should be a factor
+```{r}
+unique(burnout_orig$"WFH Setup Available")
+is.factor(burnout_orig$"WFH Setup Available")
+
+burnout_cl$"WFH Setup Available" = as.factor(burnout_orig$"WFH Setup Available")
+is.factor(burnout_cl$"WFH Setup Available")
+```
+
+</br>The remainder of the fields are all numerical values where, per the data 
+dictionary, the values (whether continuous or integer) exist on a scale (eg
+higher Designation value translates to higher in the organization).  Therefore,
+for these fields we will be checking distributions and examining/handling NA's.</br>
+
+</br>`Designation`</br>
+No NA's; no cleaning action needed
+```{r}
+unique(burnout_orig$"Designation")
+sum(is.na(burnout_orig$"Designation"))
+
+hist(burnout_cl$"Designation", col = "lightblue", probability = TRUE,
+     main = "Histogram of Designation field", 
+     xlab = "Designation" )
+```
+
+</br>`Resource Allocation` </br>
+
+Proportion of NA's deemed acceptable for modeling
+```{r}
+unique(burnout_orig$"Resource Allocation")
+sum(is.na(burnout_orig$"Resource Allocation"))
+ra_na_proportion = sum(is.na(burnout_orig$"Resource Allocation")) / 
+                            nrow(burnout_orig)
+
+hist(burnout_cl$"Resource Allocation", col = "lightblue", probability = TRUE,
+     main = "Histogram of Resource Allocation field", 
+     xlab = "Resource Allocation")
+```
+     
+`r signif(ra_na_proportion * 100, 3)`% of `Resource Allocation` values are NA.
+
+
+</br>`Mental Fatigue Score`</br>
+
+Proportion of NA's deemed acceptable for modeling
+```{r}
+sum(is.na(burnout_orig$"Mental Fatigue Score"))
+mf_na_proportion = sum(is.na(burnout_orig$"Mental Fatigue Score")) / 
+                            nrow(burnout_orig)
+
+hist(burnout_cl$"Mental Fatigue Score", col = "lightblue", probability = TRUE,
+     main = "Histogram of Mental Fatigue Score field", 
+     xlab = "Mental Fatigue Score")
+```
+     
+`r signif(mf_na_proportion * 100, 3)`% of `Mental Fatigue Score` values are NA.
+
+</br>`Burn Rate`</br>
+Records with no target value for the target field are of no use for training.  
+Should drop these records.
+
+```{r}
+sum(is.na(burnout_orig$"Burn Rate"))
+br_na_proportion = sum(is.na(burnout_orig$"Burn Rate")) / 
+                            nrow(burnout_orig)
+```
+     
+`r signif(br_na_proportion * 100, 3)`% of `Burn Rate` values are NA.</br>
+
+```{r}
+burnout_cl = burnout_cl[!is.na(burnout_orig$"Burn Rate"), ]
+#confirm drop
+sum(is.na(burnout_cl$"Burn Rate"))
+
+hist(burnout_cl$"Burn Rate", col = "lightblue", probability = TRUE,
+     main = "Histogram of Burn Rate field", 
+     xlab = "Burn Rate")
+```
+
+</br>Cleaning Wrap-up</br>
+
+After dropping the records with `Burn Rate` NA, we should recalculate the NA
+proportions we calculated above.
+```{r}
+recalc_mf_na_proportion = sum(is.na(burnout_cl$"Mental Fatigue Score")) / 
+                            nrow(burnout_cl)
+recalc_ra_na_proportion = sum(is.na(burnout_cl$"Resource Allocation")) / 
+                            nrow(burnout_cl)
+```
+
+After dropping, `r signif(recalc_ra_na_proportion * 100, 3)`% of 
+`Resource Allocation` values are NA.  </br>  
+After dropping, `r signif(recalc_mf_na_proportion * 100, 3)`% of 
+`Mental Fatigue Score` values are NA.   </br> 
+
+Final look at the cleaned dataset: 
+```{r}
+str(burnout_cl)
+```
+
+
+```{r}
+#running a basic model to check that cleaning yielded a usable dataset
+test = lm(`Burn Rate` ~ `Days in Org` + Gender + `Company Type` + `WFH Setup Available`
+                + Designation + `Resource Allocation` + `Mental Fatigue Score`, 
+   data = burnout_cl, na.action = na.exclude)
+summary(test)
+```
+
+</br>Renaming column names for easier manipulation
+```{r}
+colnames(burnout_cl) = c('ID', 'Gender', 'Type', 'WFH', 'Designation', 'Resource', 'Fatigue', 'Burn', 'Days')
+str(burnout_cl)
+```
+
+</br>Test write out/read back in
+```{r}
+#Does not read back in the same as it was written out
+#It appears we need to preface the modeling script with a condensed version of 
+#this cleaning script (or set params on the read_csv call to make it match)
+
+#write_csv(burnout_cl, "train_cleaned.csv")
+#reread = read_csv("train_cleaned.csv")
+#all.equal(burnout_cl, reread)
+```
+
+</br> **This analysis was prepared by Eric Yan and Rachel Brynsvold**
